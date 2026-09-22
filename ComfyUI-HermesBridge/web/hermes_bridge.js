@@ -77,6 +77,50 @@
     };
   }
 
+  // ---- 🎛 组开关面板联动（HermesSwitchPanel → 目标组批量 mode 切换）----
+  const PANEL_MAP = {
+    "磨皮美颜组": [13],
+    "瘦身组": [14, 15, 17, 18, 19, 20, 23, 24, 76, 77, 78],
+    "背景组": [30, 31, 32, 33, 34, 35, 36, 37, 38],
+    "光影组": [40, 41, 44, 45, 46, 47, 48, 81, 84],
+    "质感风格组": [50, 52, 53, 54, 55, 56, 57, 82, 85],
+  };
+
+  function findNodeById(graph, id) {
+    try { if (typeof graph.getNodeById === "function") { const n = graph.getNodeById(id); if (n) return n; } } catch (_) {}
+    return (graph.nodes || []).find((n) => String(n.id) === String(id)) || null;
+  }
+
+  function syncSwitchPanel() {
+    const app = getApp();
+    if (!app || !app.graph) return;
+    const graph = app.graph;
+    const panel = (graph.nodes || []).find((n) => n.type === "HermesSwitchPanel");
+    if (!panel || !Array.isArray(panel.widgets)) return;
+    for (const [name, ids] of Object.entries(PANEL_MAP)) {
+      const w = panel.widgets.find((x) => x.name === name);
+      if (!w) continue;
+      if (!w._hermesBound) {
+        w._hermesBound = true;
+        const orig = w.callback;
+        w.callback = function (v, ...rest) {
+          const on = !!v;
+          for (const id of ids) {
+            const t = findNodeById(graph, id);
+            if (t) t.mode = on ? 0 : 4;
+          }
+          if (typeof orig === "function") { try { orig.call(w, v, ...rest); } catch (_) {} }
+        };
+      }
+      // 状态反向同步：组内任一节点 mode=0 即视为"启用"
+      const anyOn = ids.some((id) => { const t = findNodeById(graph, id); return t && t.mode === 0; });
+      if (w.value !== anyOn) {
+        w.value = anyOn;   // 直接赋值不触发 callback（避免回环）
+        try { if (typeof graph.setDirtyCanvas === "function") graph.setDirtyCanvas(true, true); } catch (_) {}
+      }
+    }
+  }
+
   // ---- 简易 fetch JSON ----
   async function jget(path) {
     try {
@@ -161,6 +205,7 @@
       case "open_workflow":  return openWfTab(graph, data);
       case "inspect_node":  return inspectNode(graph, data);
       case "inspect_wf_api": return inspectWfApi(graph, data);
+      case "group_ops": return groupOps(graph, data);
       default: return { ok: false, error: "INVALID_COMMAND", message: `未知命令 ${type}` };
     }
   }
@@ -333,6 +378,93 @@
         readPos_on_viaArr: viaArr ? readPos(viaArr) : null,
       },
     };
+  }
+
+  // ---- 组框管理（模块化分组）：1.52 Group API 多路兼容 + 诊断回传 ----
+  function groupOps(graph, data = {}) {
+    const op = data.op || "add";
+    const groupsOf = () => {
+      if (Array.isArray(graph._groups)) return graph._groups;
+      if (Array.isArray(graph.groups)) return graph.groups;
+      try {
+        const g = graph.groups;
+        if (g && typeof g.values === "function") return Array.from(g.values());
+      } catch (_) {}
+      return [];
+    };
+    const detach = (g) => {
+      try { if (typeof graph.remove === "function") { graph.remove(g); return; } } catch (_) {}
+      try { if (graph._groups && Array.isArray(graph._groups)) { const i = graph._groups.indexOf(g); if (i >= 0) graph._groups.splice(i, 1); } } catch (_) {}
+      try { if (graph.groups && Array.isArray(graph.groups)) { const i = graph.groups.indexOf(g); if (i >= 0) graph.groups.splice(i, 1); } } catch (_) {}
+      try { if (graph.groups && typeof graph.groups.delete === "function") graph.groups.delete(g); } catch (_) {}
+    };
+
+    if (op === "clear") {
+      const gs = groupsOf();
+      const n = gs.length;
+      gs.slice().forEach(detach);
+      return { ok: true, data: { removed: n } };
+    }
+    if (op === "remove") {
+      const title = String(data.title || "");
+      const gs = groupsOf();
+      const hit = gs.find((g) => String(g.title || "") === title);
+      if (!hit) return { ok: false, error: "GROUP_NOT_FOUND", message: title,
+                         data: { titles: gs.map((g) => String(g.title || "")) } };
+      detach(hit);
+      return { ok: true, data: { title } };
+    }
+    if (op === "list") {
+      const gs = groupsOf();
+      return { ok: true, data: { groups: gs.map((g) => ({
+        title: String(g.title || ""),
+        bounding: (() => { try { return (g.bounding || []).slice ? g.bounding.slice() : String(g.bounding); } catch (_) { return null; } })(),
+      })) } };
+    }
+
+    // add（默认）
+    const LG = window.LiteGraph;
+    const GL = (LG && (LG.Group || LG.LGraphGroup)) || null;
+    if (!GL) {
+      const keys = LG ? Object.keys(LG).filter((k) => /group/i.test(k)) : [];
+      return { ok: false, error: "GROUP_CLASS_UNAVAILABLE",
+               message: JSON.stringify({ has_litegraph: !!LG, group_keys: keys,
+                                         graph_group: (() => { try { return typeof graph.addGroup; } catch (_) { return "n/a"; } })() }),
+               data: { litegraph_keys: keys } };
+    }
+    let g = null;
+    const diag = {};
+    try {
+      g = new GL(String(data.title || "Group"));
+      diag.ctor = g.constructor && g.constructor.name;
+      diag.ownKeys = Object.keys(g).slice(0, 30);
+      // bounding 多形态写入：bounding 数组 → _bounding → pos/size
+      const b = Array.isArray(data.bounding) ? data.bounding : [0, 0, 400, 300];
+      let wrote = false;
+      try { if ("bounding" in g || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(g) || {}, "bounding")) { g.bounding = b.slice(); wrote = true; diag.bounding_via = "setter/prop"; } } catch (e) { diag.bounding_err = String(e); }
+      if (!wrote) { try { g._bounding = b.slice(); wrote = true; diag.bounding_via = "_bounding"; } catch (_) {} }
+      try { if (g.pos && typeof g.pos === "object") { g.pos[0] = b[0]; g.pos[1] = b[1]; } } catch (_) {}
+      try { g.x = b[0]; g.y = b[1]; g.width = b[2]; g.height = b[3]; } catch (_) {}
+      if (data.color) { try { g.color = data.color; } catch (_) {} }
+      // 入图多路
+      let added = false;
+      try { if (typeof graph.add === "function") { graph.add(g); added = true; diag.added_via = "graph.add"; } } catch (e) { diag.add_err = String(e); }
+      if (!added) {
+        try { if (typeof graph.addGroup === "function") { graph.addGroup(g); added = true; diag.added_via = "graph.addGroup"; } } catch (e) { diag.addGroup_err = String(e); }
+      }
+      if (!added) {
+        try {
+          if (Array.isArray(graph._groups)) { graph._groups.push(g); added = true; diag.added_via = "_groups.push"; }
+          else if (Array.isArray(graph.groups)) { graph.groups.push(g); added = true; diag.added_via = "groups.push"; }
+          else if (graph.groups && typeof graph.groups.add === "function") { graph.groups.add(g); added = true; diag.added_via = "groups.set"; }
+        } catch (e) { diag.push_err = String(e); }
+      }
+      if (!added) return { ok: false, error: "GROUP_ADD_FAILED", data: diag };
+      return { ok: true, data: { title: String(g.title || ""), added_via: diag.added_via,
+                                 bounding_via: diag.bounding_via || null, ctor: diag.ctor } };
+    } catch (e) {
+      return { ok: false, error: "GROUP_ADD_EXCEPTION", message: String(e), data: diag };
+    }
   }
 
   // ---- 诊断：workflow 服务/商店 API（定位"加载进已有测试1标签"的正门）----
@@ -559,7 +691,8 @@
           command_id: cmd.command_id,
           success: !!ok,
           data: ok ? (d !== undefined && d !== null ? d : rest) : null,
-          error: ok ? null : { code: error || "COMMAND_FAILED", message: message || "" },
+          error: ok ? null : { code: error || "COMMAND_FAILED", message: message || "",
+                               data: (d !== undefined && d !== null) ? d : undefined },
           origin: "comfyui",
         });
       }
@@ -597,6 +730,7 @@
       console.log("[HermesBridge] 画布就绪，启动双向轮询");
       setInterval(poll, 1200);
       setInterval(syncGraph, 2500);
+      setInterval(syncSwitchPanel, 800);
     }
   }
 

@@ -11,9 +11,11 @@
 | `ComfyUI-HermesBridge/` | ComfyUI 侧 custom node（后端桥 `/hermes_bridge/*` + 前端扩展 `web/hermes_bridge.js` + 7 份文档） |
 | `comfyui_hermes_bridge.py` | Hermes 侧 MCP server（28 个 `hb_*` 工具） |
 
-**快速安装**：Release 页下载 `ComfyUI-HermesBridge-v1.0.0.zip` 解压 → 插件目录放进 `ComfyUI/custom_nodes/` → MCP 文件注册进 Hermes `config.yaml`（见下方"安装 / 接入"）。
+**快速安装**：Release 页下载 `ComfyUI-HermesBridge-v1.0.1.zip` 解压 → 插件目录放进 `ComfyUI/custom_nodes/` → MCP 文件注册进 Hermes `config.yaml`（详见 Release 页安装说明）。
 
 ---
+
+> 本项目由chatgpt制定方案，由deepseekV4-flash和mimo-V2.6flash 结合完成开发
 
 # ComfyUI-HermesBridge
 

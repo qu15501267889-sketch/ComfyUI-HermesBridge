@@ -57,8 +57,37 @@ class HermesBridgeProbe:
         return ()
 
 
+class HermesSwitchPanel:
+    """🎛 组开关面板（纯 UI 节点，无输出 → 不进执行链）。
+    Boolean 开关由 web/hermes_bridge.js 轮询挂回调：
+    勾选=True 组活跃(mode=0)；取消=False 组透传(mode=4)。"""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "磨皮美颜组": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "关·透传"}),
+                "瘦身组": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "关·透传"}),
+                "背景组": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "关·透传"}),
+                "光影组": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "关·透传"}),
+                "质感风格组": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "关·透传"}),
+            }
+        }
+    RETURN_TYPES = ()
+    FUNCTION = "noop"
+    CATEGORY = "hermes"
+    DESCRIPTION = "总控开关面板：取消勾选=该组整组透传（Never）。由 HermesBridge JS 联动。"
+
+    def noop(self):
+        return ()
+
+
 NODE_CLASS_MAPPINGS = {"HermesBridgeProbe": HermesBridgeProbe}
-NODE_DISPLAY_NAME_MAPPINGS = {"HermesBridgeProbe": "Hermes Bridge"}
+NODE_CLASS_MAPPINGS["HermesSwitchPanel"] = HermesSwitchPanel
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "HermesBridgeProbe": "Hermes Bridge",
+    "HermesSwitchPanel": "🎛 组开关面板 (Hermes)",
+}
 WEB_DIRECTORY = "./web"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
 

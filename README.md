@@ -12,7 +12,73 @@
 | `comfyui_hermes_bridge.py` | Hermes 侧 MCP server（28 个 `hb_*` 工具） |
 | `examples/qianwen修改图2.json` | **测试画布**——使用本插件（画布操作 MCP 工具链）开发，7 功能串行修图链 + 每级预览 |
 
-**快速安装**：Release 页下载 `ComfyUI-HermesBridge-v1.0.2.zip`（**双端齐全**：ComfyUI 插件 + Hermes 侧 `comfyui_hermes_bridge.py` + `INSTALL.md` 三步安装指南）→ 插件目录放进 `ComfyUI/custom_nodes/` → 按 zip 内 INSTALL.md 注册 MCP（路径换成本机的）。
+**下载即用**：Release 页下载 `ComfyUI-HermesBridge-v1.0.3.zip`，包内文件齐全（插件 + MCP server + 文档 + 测试画布），按下面「使用方法」操作即可。
+
+---
+
+## 使用方法
+
+### 包内文件一览
+
+| 文件/目录 | 用途 |
+|---|---|
+| `ComfyUI-HermesBridge/` | ComfyUI 侧插件（后端桥 + 前端扩展 + 完整文档），**零依赖** |
+| `comfyui_hermes_bridge.py` | Hermes 侧 MCP server（28 个 `hb_*` 工具） |
+| `INSTALL.md` | 安装说明（与本节内容一致，随包离线可读） |
+| `examples/qianwen修改图2.json` | 测试画布（由本插件开发，用作安装验收） |
+
+### 环境要求
+
+- ComfyUI ≥ **0.37**（前端 ≥ 1.52，实测 0.37.0 / 1.52.7）
+- **Hermes Agent**（自带 Python 运行时即可）
+
+### 第 1 步 · ComfyUI 侧（解压即用）
+
+1. 把包内 `ComfyUI-HermesBridge/` 整个目录放入你的 `ComfyUI/custom_nodes/`
+2. 启动（或重启）ComfyUI —— 启动日志出现 `HermesBridge` 即注册成功
+3. 浏览器打开 ComfyUI 页面，按一次 **Ctrl+R**（让前端扩展生效；以后每次改动前端 JS 同样要按）
+
+验证后端桥在线：
+
+```
+curl http://127.0.0.1:8188/hermes_bridge/ping
+```
+
+### 第 2 步 · Hermes 侧（3 个小步骤）
+
+1. 把包内 `comfyui_hermes_bridge.py` 放到任意固定路径，例如 `D:\tools\comfyui_hermes_bridge.py`
+2. 给 **Hermes 用的那个 Python** 装依赖（路径换成你机器上的，通常在）：
+   ```
+   C:\Users\<你>\.hermes-web-ui\desktop-runtime\hermes\<版本>\win-x64\python\venv\Scripts\python.exe -m pip install mcp
+   ```
+3. 编辑 `C:\Users\<你>\.hermes\config.yaml`，在 `mcp_servers:` 下加入（**路径换成第1、2步的实际路径**）：
+
+   ```yaml
+   mcp_servers:
+     comfyui_hermes:
+       command: C:\Users\<你>\...\python.exe      # 第2步那个 Python 的完整路径
+       args:
+       - D:\tools\comfyui_hermes_bridge.py        # 第1步放置的文件
+       env:
+         COMFY_URL: "http://127.0.0.1:8188"
+       enabled: true
+   ```
+
+4. **重启 Hermes**（MCP 列表不支持热加载）→ 工具列表出现 `mcp__comfyui_hermes__hb_*`（28 个）即全部就绪
+
+### 第 3 步 · 导入测试画布（可选，建议做）
+
+把 `examples/qianwen修改图2.json` 放入 `ComfyUI/user/default/workflows/` → 前端工作流列表打开。
+该画布 = 7 功能串行修图链（美白→磨皮→瘦身→换背景→道具→光影重塑→风格化→保存→输出预览），每功能自带解码+预览，超分默认关。**由本插件的画布操作工具开发而成**，装完跑一遍即验收插件全链路。
+
+### 常见问题
+
+| 现象 | 处理 |
+|---|---|
+| 找不到 `hb_*` 工具 | config.yaml 路径须为**绝对路径**；`mcp` 装进了同一个 Python；Hermes 已重启 |
+| 命令返回 `COMMAND_TIMEOUT` | ComfyUI 浏览器页面没开或在后台被节流 → 打开页面 Ctrl+R |
+| 修改画布的命令没生效 | 浏览器 Ctrl+R 刷新前端扩展后重试 |
+| 无需任何浏览器自动化/系统权限 | 本插件全程官方 graph API + REST |
 
 ---
 

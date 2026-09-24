@@ -1,4 +1,4 @@
-# ComfyUI-HermesBridge 安装指南（v1.0.2）
+# ComfyUI-HermesBridge 安装指南（v1.0.3）
 
 > 本插件实现「Hermes Agent ↔ ComfyUI 双向直连画布」：28 个 `hb_*` MCP 工具
 > 直接读写画布（建节点/连线/改参数/存取工作流/执行出图），零浏览器自动化。

@@ -10,8 +10,22 @@
 |---|---|
 | `ComfyUI-HermesBridge/` | ComfyUI 侧 custom node（后端桥 `/hermes_bridge/*` + 前端扩展 `web/hermes_bridge.js` + 7 份文档） |
 | `comfyui_hermes_bridge.py` | Hermes 侧 MCP server（28 个 `hb_*` 工具） |
+| `examples/qianwen修改图2.json` | **测试画布**——使用本插件（画布操作 MCP 工具链）开发，7 功能串行修图链 + 每级预览 |
 
-**快速安装**：Release 页下载 `ComfyUI-HermesBridge-v1.0.1.zip` 解压 → 插件目录放进 `ComfyUI/custom_nodes/` → MCP 文件注册进 Hermes `config.yaml`（详见 Release 页安装说明）。
+**快速安装**：Release 页下载 `ComfyUI-HermesBridge-v1.0.2.zip` 解压 → 插件目录放进 `ComfyUI/custom_nodes/` → MCP 文件注册进 Hermes `config.yaml`（详见 Release 页安装说明）。
+
+---
+
+## 测试画布
+
+`examples/qianwen修改图2.json` —— **本画布由 ComfyUI-HermesBridge 插件（画布操作 MCP 工具链）开发**，作为插件的实测验收画布。
+
+- **7 功能串行修图链**：美白 → 磨皮 → 瘦身 → 换背景 → 道具替换 → 光影重塑 → 整体风格化 → 保存 → 输出预览
+- 每个功能模块自带 **VAE 解码 + 预览节点**，逐级看每步效果
+- 末端超分模块**默认关闭**（`mode=Never` 透传，右键 Mode → Always 手动开启）
+- 分区：调试工作区（输入图/提示词/强度）+ 执行管线（模型/保存）分组框
+
+导入方式：ComfyUI 左侧工作流列表 → 导入，或放入 `user/default/workflows/` 后在前端打开。
 
 ---
 

@@ -806,6 +806,145 @@
       setInterval(syncSwitchPanel, 800);
       setInterval(syncSwitchPanelIntensity, 800);
       setInterval(syncBgAbSwitch, 800);
+
+      // ---- 🎛 修图总控面板（开关/提示词/强度 → 功能1-7 模块；面板=唯一编辑入口）----
+      // 模块定位不写死 id：按标题「功能N·…」+ 连线拓扑发现
+      //   TE --(positive)--> KSampler --(samples)--> VAEDecode --(images)--> PreviewImage
+      // 开关关 → 四节点 mode=4(Never)：graphToPrompt 跳过并把下游重连到模块上游，
+      // 连续多关逐级透传（由前端原生 bypass 机制保证）；提示词/强度 → 对应 widget。
+      function _originOfInput(graph, node, inputName) {
+        const inp = (node.inputs || []).find((i) => i && i.name === inputName);
+        if (!inp || inp.link == null) return null;
+        const nodes = graph._nodes || graph.nodes || [];
+        for (const n of nodes) {
+          for (const o of (n.outputs || [])) {
+            if ((o.links || []).indexOf(inp.link) >= 0) return n;
+          }
+        }
+        return null;
+      }
+      function _firstDownstream(graph, node) {
+        if (!node.outputs || !node.outputs[0]) return null;
+        const links = node.outputs[0].links || [];
+        if (!links.length) return null;
+        const lid = links[0];
+        const nodes = graph._nodes || graph.nodes || [];
+        for (const n of nodes) {
+          for (const i of (n.inputs || [])) {
+            if (i && i.link === lid) return n;
+          }
+        }
+        return null;
+      }
+      function discoverRetouchModules(graph) {
+        const nodes = graph._nodes || graph.nodes || [];
+        const out = [];
+        for (const n of nodes) {
+          if (n.type !== "TextEncodeQwenImage21") continue;
+          const m = /^功能(\d+)/.exec(n.title || "");
+          if (!m) continue;
+          const mod = { i: Number(m[1]), te: n, ks: null, dec: null, preview: null };
+          mod.ks = _originOfInput(graph, n, "positive") && (_originOfInput(graph, n, "positive").type === "KSampler" ? _originOfInput(graph, n, "positive") : null);
+          // TE.positive 的下游就是本模块 KSampler（也可能是别的模块，校验 KS.positive 回指）
+          const ks = _firstDownstream(graph, n); // outputs[0]=positive
+          if (ks && ks.type === "KSampler") mod.ks = ks;
+          if (mod.ks) {
+            const dec = _firstDownstream(graph, mod.ks); // outputs[0]=LATENT
+            if (dec && dec.type === "VAEDecode") mod.dec = dec;
+          }
+          if (mod.dec) {
+            // 解码输出可能有多条下游（预览 + 超分链）：遍历全部输出连线找 PreviewImage
+            const decLinks = (mod.dec.outputs && mod.dec.outputs[0] && mod.dec.outputs[0].links) || [];
+            for (const lid of decLinks) {
+              const nodes2 = graph._nodes || graph.nodes || [];
+              for (const n of nodes2) {
+                for (const i of (n.inputs || [])) {
+                  if (i && i.link === lid && n.type === "PreviewImage") { mod.preview = n; }
+                }
+              }
+            }
+          }
+          out.push(mod);
+        }
+        return out;
+      }
+      // 连续多关透传：LiteGraph mode=4 的自动重连只解一层不递归（实测多级连关
+      // 下游输入=null）。故由 JS 在开关变化后做「链脊手术」：把每个开启模块的
+      // 输入接到上一个开启模块的解码输出（无开启模块则接预处理），尾部接超分→保存。
+      // mode=4 负责剔除被关模块的算力，本函数负责数据通路，两者互补。
+      function layoutRetouchSpine(graph) {
+        const nodes = graph._nodes || graph.nodes || [];
+        const mods = discoverRetouchModules(graph).sort((a, b) => a.i - b.i);
+        if (!mods.length) return;
+        const on = mods.filter((m) => m.te.mode !== 4 && m.ks && m.dec);
+        // 链头：预处理（找不到就用 LoadImage）
+        const head = nodes.find((n) => n.type === "ImageScaleToMaxDimension")
+                  || nodes.find((n) => n.type === "LoadImage");
+        if (!head) return;
+        const idx = (node, name) => (node.inputs || []).findIndex((i) => i && i.name === name);
+        const curOrigin = (node, name) => {
+          const i = (node.inputs || []).find((x) => x && x.name === name);
+          if (!i || i.link == null) return null;
+          for (const n of nodes) {
+            for (const o of (n.outputs || [])) {
+              if ((o.links || []).indexOf(i.link) >= 0) return n;
+            }
+          }
+          return null;
+        };
+        const ensure = (src, dst, name) => {
+          const slot = idx(dst, name);
+          if (slot < 0) return;
+          const c = curOrigin(dst, name);
+          if (c && c.id === src.id) return;
+          try { src.connect(0, dst, slot); } catch (_) {}
+        };
+        let prev = head;
+        for (const m of on) { ensure(prev, m.te, "images.image_1"); prev = m.dec; }
+        // 尾部：最后一个开启模块的解码（无则链头）→ 超分(默认关,透传)→保存
+        const up = nodes.find((n) => n.type === "ImageUpscaleWithModel");
+        if (up) ensure(prev, up, "image");
+        else {
+          const save = nodes.find((n) => n.type === "SaveImage");
+          if (save) ensure(prev, save, "images");
+        }
+      }
+      function syncRetouchPanel() {
+        const app = getApp();
+        if (!app || !app.graph) return;
+        const graph = app.graph;
+        const nodes = graph._nodes || graph.nodes || [];
+        const panel = nodes.find((n) => n.type === "HermesRetouchPanel");
+        if (!panel || !Array.isArray(panel.widgets)) return;
+        const mods = discoverRetouchModules(graph);
+        let dirty = false;
+        for (const w of panel.widgets) {
+          const m = /^(\d)·(.+?) (开关|提示词|强度)$/.exec((w && w.name) || "");
+          if (!m) continue;
+          const mod = mods.find((x) => x.i === Number(m[1]));
+          if (!mod) continue;
+          const kind = m[3];
+          if (kind === "开关") {
+            const mode = w.value ? 0 : 4;
+            for (const t of [mod.te, mod.ks, mod.dec, mod.preview]) {
+              if (t && t.mode !== mode) { t.mode = mode; dirty = true; }
+            }
+          } else if (kind === "提示词") {
+            if (w.value === "" || w.value == null) continue; // 面板空串不覆盖节点
+            const tw = (mod.te.widgets || []).find((x) => x.name === "prompt");
+            if (tw && tw.value !== w.value) { tw.value = w.value; dirty = true; }
+          } else if (kind === "强度") {
+            if (!mod.ks) continue;
+            const v = Number(w.value);
+            if (!isFinite(v)) continue;
+            const tw = (mod.ks.widgets || []).find((x) => x.name === "denoise");
+            if (tw && Math.abs(Number(tw.value) - v) > 1e-6) { tw.value = v; dirty = true; }
+          }
+        }
+        if (dirty) { try { graph.setDirtyCanvas && graph.setDirtyCanvas(true, true); } catch (_) {} }
+        try { layoutRetouchSpine(graph); } catch (_) {}
+      }
+      setInterval(syncRetouchPanel, 800);
     }
   }
 

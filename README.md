@@ -12,7 +12,7 @@
 | `comfyui_hermes_bridge.py` | Hermes 侧 MCP server（28 个 `hb_*` 工具） |
 | `examples/qianwen修改图2.json` | **测试画布**——使用本插件（画布操作 MCP 工具链）开发，7 功能串行修图链 + 每级预览 |
 
-**下载即用**：Release 页下载 `ComfyUI-HermesBridge-v1.0.3.zip`，包内文件齐全（插件 + MCP server + 文档 + 测试画布），按下面「使用方法」操作即可。
+**下载即用**：Release 页下载 `ComfyUI-HermesBridge-v1.0.5.zip`，包内文件齐全（插件 + MCP server + 文档 + 测试画布），按下面「使用方法」操作即可。
 
 ---
 

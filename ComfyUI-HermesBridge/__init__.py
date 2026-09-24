@@ -108,13 +108,48 @@ class HermesIntensityPanel:
         return ()
 
 
+class HermesRetouchPanel:
+    """🎛 修图总控面板（纯 UI 节点，无输出 → 不进执行链）。
+    7 个功能 × [开关 / 提示词 / 强度] 集中控制，由 web/hermes_bridge.js 的
+    syncRetouchPanel 联动（面板为唯一编辑入口）：
+      - 开关 关 → 对应功能模块(提示词/采样/解码/预览)设 mode=4(Never) 跳过，
+        上游结果逐级透传（连续多关同样透传）；开 → mode=0 执行。
+      - 提示词 → 写进对应 TextEncodeQwenImage21 的 prompt widget（空串不覆盖）。
+      - 强度 → 写进对应 KSampler 的 denoise widget。
+    模块定位不写死节点 id：按标题「功能N·…〔提示词〕」+ 连线拓扑发现。
+    新增模块=标题带「功能N·」前缀即可自动纳入。"""
+
+    FUNCS = ["美白", "磨皮", "瘦身", "换背景", "道具", "光影重塑", "整体风格化"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        req = {}
+        for i, name in enumerate(cls.FUNCS, 1):
+            p = f"{i}·{name}"
+            req[f"{p} 开关"] = ("BOOLEAN", {"default": True})
+            req[f"{p} 提示词"] = ("STRING", {"multiline": True, "default": ""})
+            req[f"{p} 强度"] = ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0,
+                                          "step": 0.01, "round": 0.001})
+        return {"required": req}
+
+    RETURN_TYPES = ()
+    FUNCTION = "noop"
+    CATEGORY = "hermes"
+    DESCRIPTION = "修图总控面板：功能1-7 的开关/提示词/强度集中控制，JS 联动写入对应节点。"
+
+    def noop(self, **_kwargs):
+        return ()
+
+
 NODE_CLASS_MAPPINGS = {"HermesBridgeProbe": HermesBridgeProbe}
 NODE_CLASS_MAPPINGS["HermesSwitchPanel"] = HermesSwitchPanel
 NODE_CLASS_MAPPINGS["HermesIntensityPanel"] = HermesIntensityPanel
+NODE_CLASS_MAPPINGS["HermesRetouchPanel"] = HermesRetouchPanel
 NODE_DISPLAY_NAME_MAPPINGS = {
     "HermesBridgeProbe": "Hermes Bridge",
     "HermesSwitchPanel": "🎛 组开关面板 (Hermes)",
     "HermesIntensityPanel": "🎚 强度总控面板 (Hermes)",
+    "HermesRetouchPanel": "🎛 修图总控面板 (Hermes)",
 }
 WEB_DIRECTORY = "./web"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

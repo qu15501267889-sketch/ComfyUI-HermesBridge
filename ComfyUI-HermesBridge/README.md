@@ -1,5 +1,3 @@
-> 本项目由chatgpt制定方案，由deepseekV4-flash和mimo-V2.6flash 结合完成开发
-
 # ComfyUI-HermesBridge
 
 Hermes Studio <-> ComfyUI **双向控制桥**。Hermes 直接读写 ComfyUI 画布：

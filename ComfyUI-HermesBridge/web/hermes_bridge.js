@@ -81,9 +81,20 @@
   const PANEL_MAP = {
     "磨皮美颜组": [13],
     "瘦身组": [14, 15, 17, 18, 19, 20, 23, 24, 76, 77, 78],
-    "背景组": [30, 31, 32, 33, 34, 35, 36, 37, 38],
+    "背景组": [100, 101, 102, 105, 106, 107, 108, 110, 111, 112, 113, 114, 115, 117, 118],
     "光影组": [40, 41, 44, 45, 46, 47, 48, 81, 84],
     "质感风格组": [50, 52, 53, 54, 55, 56, 57, 82, 85],
+  };
+
+  // ---- 🎚 强度面板联动（HermesIntensityPanel → 各采样节点 denoise/strength）----
+  // 滑块名 -> {nodeId, widget[,scale]}：滑块值直接写进该节点 widget。
+  // 新增模块=在此加一行；widget 会在节点存在时更新。
+  const INTENSITY_MAP = {
+    "磨皮美颜强度": { node: 13, widget: "denoise", scale: 1.0 },
+    "瘦身强度": { node: 18, widget: "denoise", scale: 1.0 },
+    "背景替换强度": { node: 30, widget: "denoise", scale: 1.0 },
+    "光影强度": { node: 40, widget: "strength", scale: 1.0 },
+    "质感风格强度": { node: 50, widget: "denoise", scale: 1.0 },
   };
 
   function findNodeById(graph, id) {
@@ -109,6 +120,10 @@
             const t = findNodeById(graph, id);
             if (t) t.mode = on ? 0 : 4;
           }
+          if (name === "背景组") {
+            const m = findNodeById(graph, 120);   // 背景组主输出开关
+            if (m) { const sw = (m.widgets || []).find((x) => x.name === "switch"); if (sw) sw.value = on; }
+          }
           if (typeof orig === "function") { try { orig.call(w, v, ...rest); } catch (_) {} }
         };
       }
@@ -118,6 +133,28 @@
         w.value = anyOn;   // 直接赋值不触发 callback（避免回环）
         try { if (typeof graph.setDirtyCanvas === "function") graph.setDirtyCanvas(true, true); } catch (_) {}
       }
+    }
+  }
+
+  // ---- 背景 A/B 互斥联动（117 ComfySwitchNode → 两路 mode）----
+  // 117.switch=True(文生B) → 路A(102,108) mode=4; False(传图A) → 路B(110-115,118) mode=4
+  function syncBgAbSwitch() {
+    const app = getApp();
+    if (!app || !app.graph) return;
+    const graph = app.graph;
+    const sw = (graph.nodes || []).find((n) => n.type === "ComfySwitchNode" && String(n.id) === "117");
+    if (!sw || !Array.isArray(sw.widgets)) return;
+    const w = sw.widgets.find((x) => x.name === "switch");
+    if (!w) return;
+    if (!w._hermesAbBound) {
+      w._hermesAbBound = true;
+      const orig = w.callback;
+      w.callback = function (v, ...rest) {
+        const useB = !!v;                 // true=文生背景
+        [102, 108].forEach((id) => { const t = findNodeById(graph, id); if (t) t.mode = useB ? 4 : 0; });
+        [110, 111, 112, 113, 114, 115, 118].forEach((id) => { const t = findNodeById(graph, id); if (t) t.mode = useB ? 0 : 4; });
+        if (typeof orig === "function") { try { orig.call(w, v, ...rest); } catch (_) {} }
+      };
     }
   }
 
@@ -308,19 +345,11 @@
   async function loadWorkflow(graph, data = {}) {
     const name = String(data.name || "").trim();
     if (!name) return { ok: false, error: "INVALID_ARGUMENT", message: "缺少 name" };
-    // 优先走 workflow store：打开到正确的已命名标签（不新建 draft 标签）
-    const store = getWfStore();
-    if (store) {
-      try {
-        const { asset, names } = findWfAsset(store, name);
-        if (asset) {
-          await store.openWorkflow(asset);
-          return { ok: true, data: { name, via: "openWorkflow" } };
-        }
-      } catch (e) {
-        // store 打开失败 → 落回 loadGraphData 直灌
-      }
-    }
+    // FIX 2026-09-24 v2（重复画布 Bug 根治，源码实证 settingStore/activateLoadedWorkflow）：
+    // loadGraphData(data, clean, restore_view, r) 第4参 r 决定 tab 归属：
+    //   r=null → createNewTemporary() 新建"未保存的工作流(N)"临时 tab（=重复画布元凶）；
+    //   r=字符串名 → 按 workflows/<名>.json 查已开 tab：已开→绑定去重，未开→以该名建 tab。
+    // 故：先把目标名的已开 tab 激活（若已开且未激活），再以名字为绑定参数灌数据。
     let wf = null;
     try {
       const r = await fetch(BASE + "/hermes_bridge/workflow/load?name=" + encodeURIComponent(name));
@@ -329,15 +358,36 @@
       wf = j && j.graph;
     } catch (e) { return { ok: false, error: "LOAD_FAILED", message: String(e) }; }
     if (!wf) return { ok: false, error: "WORKFLOW_EMPTY", message: "文件无 graph" };
+
+    const bare = name.replace(/\.json$/i, "");
+    let activated = false;
+    try {
+      const store = getWfStore();
+      if (store && typeof store.openWorkflow === "function") {
+        const tabs = [].concat(store.openWorkflows || []);
+        let hit = tabs.find((w) => wfKey(w) === bare || wfKey(w).endsWith("/" + bare)) || null;
+        if (!hit && typeof store.getWorkflowByPath === "function") {
+          const dirs = [...new Set(tabs.map((w) => String((w && w.path) || "").replace(/[^/]+$/, "")).filter(Boolean))];
+          for (const d of (dirs.length ? dirs : ["workflows/"])) {
+            try { hit = store.getWorkflowByPath(d + bare + ".json"); } catch (_) {}
+            if (hit) break;
+          }
+        }
+        if (hit && typeof store.isActive === "function" && !store.isActive(hit)) {
+          try { await store.openWorkflow(hit); activated = true; } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
     try {
       const svc = getGraphSvc();
       const app = getApp();
-      if (svc && typeof svc.loadGraphData === "function") await svc.loadGraphData(wf, false, false);
-      else if (app && typeof app.loadGraphData === "function") await app.loadGraphData(wf);
+      if (svc && typeof svc.loadGraphData === "function") await svc.loadGraphData(wf, true, true, bare);
+      else if (app && typeof app.loadGraphData === "function") await app.loadGraphData(wf, true, true, bare);
       else if (app && app.graph && typeof app.graph.configure === "function") app.graph.configure(wf);
       else return { ok: false, error: "LOAD_UNAVAILABLE", message: "loadGraphData 不可用" };
     } catch (e) { return { ok: false, error: "LOAD_FAILED", message: String(e) }; }
-    return { ok: true, data: { name } };
+    return { ok: true, data: { name, via: activated ? "activate+bind-name" : "bind-name" } };
   }
 
   // ---- 诊断：节点对象形态（定位 pos 快照读 0 的根因）----
@@ -730,7 +780,32 @@
       console.log("[HermesBridge] 画布就绪，启动双向轮询");
       setInterval(poll, 1200);
       setInterval(syncGraph, 2500);
+      function syncSwitchPanelIntensity() {
+    const app = getApp();
+    if (!app || !app.graph) return;
+    const graph = app.graph;
+    const panel = (graph.nodes || []).find((n) => n.type === "HermesIntensityPanel");
+    if (!panel || !Array.isArray(panel.widgets)) return;
+    for (const [name, cfg] of Object.entries(INTENSITY_MAP)) {
+      const w = panel.widgets.find((x) => x.name === name);
+      if (!w) continue;
+      if (!w._hermesIntenBound) {
+        w._hermesIntenBound = true;
+        const orig = w.callback;
+        w.callback = function (v, ...rest) {
+          const target = findNodeById(graph, cfg.node);
+          if (target) {
+            const tw = (target.widgets || []).find((x) => x.name === cfg.widget);
+            if (tw) tw.value = cfg.scale * Number(v);
+          }
+          if (typeof orig === "function") { try { orig.call(w, v, ...rest); } catch (_) {} }
+        };
+      }
+    }
+  }
       setInterval(syncSwitchPanel, 800);
+      setInterval(syncSwitchPanelIntensity, 800);
+      setInterval(syncBgAbSwitch, 800);
     }
   }
 

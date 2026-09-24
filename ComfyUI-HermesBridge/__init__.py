@@ -82,11 +82,39 @@ class HermesSwitchPanel:
         return ()
 
 
+class HermesIntensityPanel:
+    """🎚 强度总控面板（纯 UI 节点，无输出 → 不进执行链）。
+    多个 FLOAT 强度滑块（磨皮/瘦身/背景/光影/质感……），由 web/hermes_bridge.js
+    联动：拖动滑块 → 值写进对应目标节点的 denoise/strength widget。
+    映射在 JS 侧 INTENSITY_MAP 维护，新增模块=加一行滑块+映射，无需重启 Python。"""
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "磨皮美颜强度": ("FLOAT", {"default": 0.32, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
+                "瘦身强度": ("FLOAT", {"default": 0.30, "min": 0.0, "max": 1.0, "step": 0.01, "round": 0.001}),
+                "背景替换强度": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "光影强度": ("FLOAT", {"default": 0.80, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "质感风格强度": ("FLOAT", {"default": 0.60, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+    RETURN_TYPES = ()
+    FUNCTION = "noop"
+    CATEGORY = "hermes"
+    DESCRIPTION = "强度总控面板：各模块强度滑杆，由 HermesBridge JS 联动写入对应采样节点 denoise/strength。"
+
+    def noop(self):
+        return ()
+
+
 NODE_CLASS_MAPPINGS = {"HermesBridgeProbe": HermesBridgeProbe}
 NODE_CLASS_MAPPINGS["HermesSwitchPanel"] = HermesSwitchPanel
+NODE_CLASS_MAPPINGS["HermesIntensityPanel"] = HermesIntensityPanel
 NODE_DISPLAY_NAME_MAPPINGS = {
     "HermesBridgeProbe": "Hermes Bridge",
     "HermesSwitchPanel": "🎛 组开关面板 (Hermes)",
+    "HermesIntensityPanel": "🎚 强度总控面板 (Hermes)",
 }
 WEB_DIRECTORY = "./web"
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

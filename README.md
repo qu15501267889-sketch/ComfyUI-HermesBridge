@@ -12,7 +12,7 @@
 | `comfyui_hermes_bridge.py` | Hermes 侧 MCP server（28 个 `hb_*` 工具） |
 | `examples/qianwen修改图2.json` | **测试画布**——使用本插件（画布操作 MCP 工具链）开发，7 功能串行修图链 + 每级预览 |
 
-**快速安装**：Release 页下载 `ComfyUI-HermesBridge-v1.0.2.zip` 解压 → 插件目录放进 `ComfyUI/custom_nodes/` → MCP 文件注册进 Hermes `config.yaml`（详见 Release 页安装说明）。
+**快速安装**：Release 页下载 `ComfyUI-HermesBridge-v1.0.2.zip`（**双端齐全**：ComfyUI 插件 + Hermes 侧 `comfyui_hermes_bridge.py` + `INSTALL.md` 三步安装指南）→ 插件目录放进 `ComfyUI/custom_nodes/` → 按 zip 内 INSTALL.md 注册 MCP（路径换成本机的）。
 
 ---
 
